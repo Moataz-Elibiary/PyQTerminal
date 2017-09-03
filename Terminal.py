@@ -1,4 +1,4 @@
-from PyQt4.QtGui import QTextCursor, QTextEdit, QFont, QTextCharFormat, QFontMetrics
+from PyQt4.QtGui import QTextCursor, QTextEdit, QFont, QTextCharFormat, QFontMetrics, QColor
 from PyQt4.QtCore import QTimer, Qt, QCoreApplication, SIGNAL
 from Background import Connection
 from ControlSequence import *
@@ -9,6 +9,10 @@ class QTerminal(QTextEdit):
     TIMEOUT = 60       # Timeout after 60 [s]
     MAX_OUTPUT = 1000  # Maximum output is 1000 lines
     MAX_HISTORY = 100  # Maximum history is 100 lines
+    FG_COLOR = QColor(100, 100, 100)
+    BG_COLOR = QColor(255, 255, 255)
+    SELECT_FG_COLOR = QColor(255, 255, 255)
+    SELECT_BG_COLOR = QColor(40, 90, 240)
 
     def __init__(self, master=None, session=None):
         super(QTerminal, self).__init__(master)
@@ -35,8 +39,10 @@ class QTerminal(QTextEdit):
         self._selection_cursor = self.textCursor()
         self._select_cursor_format = self.currentCharFormat()
         self._deselect_cursor_format = self.currentCharFormat()
-        self._select_cursor_format.setBackground(Qt.blue)
-        self._deselect_cursor_format.setBackground(Qt.white)
+        self._select_cursor_format.setBackground(self.SELECT_BG_COLOR)
+        self._select_cursor_format.setForeground(self.SELECT_FG_COLOR)
+        self._deselect_cursor_format.setBackground(self.BG_COLOR)
+        self._deselect_cursor_format.setForeground(self.FG_COLOR)
         # noinspection PyArgumentList
         self._app = QCoreApplication.instance()
         self._clipboard = self._app.clipboard()
@@ -124,33 +130,51 @@ class QTerminal(QTextEdit):
             self._selection_cursor.clearSelection()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Up:
-            self.send_text(CSI + 'A')
-            return
-
-        if event.key() == Qt.Key_Down:
-            self.send_text(CSI + 'B')
-            return
-
-        if event.key() == Qt.Key_Right:
-            self.send_text(CSI + 'C')
-            return
-
-        elif event.key() == Qt.Key_Left:
-            self.send_text(CSI + 'D')
-            return
-
-        elif event.key() == Qt.Key_Return:
-            # Move cursor to end of line before sending
-            cursor = self.textCursor()
-            cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.MoveAnchor)
-            cursor.setCharFormat(self.currentCharFormat())
-            self.setTextCursor(cursor)
-            self.send_text(event.text())
-            return
-
         if event.modifiers() == Qt.NoModifier:
-            self.send_text(event.text())
+            if event.key() == Qt.Key_Up:          # Move cursor up
+                text = CSI + 'A'
+            elif event.key() == Qt.Key_Down:      # Move cursor down
+                text = CSI + 'B'
+            elif event.key() == Qt.Key_Right:     # Move cursor right
+                text = CSI + 'C'
+            elif event.key() == Qt.Key_Left:      # Move cursor left
+                text = CSI + 'D'
+            elif event.key() == Qt.Key_Return:    # Move cursor to end of line then send command
+                cursor = self.textCursor()
+                cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.MoveAnchor)
+                cursor.setCharFormat(self.currentCharFormat())
+                self.setTextCursor(cursor)
+                text = event.text()
+            elif event.key() == Qt.Key_Escape:    # Read data in buffer - Send "End Of Transmission"
+                text = '\x04'
+            else:
+                text = event.text()
+
+            self.send_text(text)
+            return
+
+        elif event.modifiers() == Qt.ControlModifier:
+            if event.key() == Qt.Key_A:           # Select All
+                self._clear_cursor_selection()
+                self._selection_cursor.movePosition(QTextCursor.Start, QTextCursor.MoveAnchor)
+                self._selection_cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
+                self._selection_cursor.setCharFormat(self._select_cursor_format)
+                if self._selection_cursor.hasSelection:
+                    self._clipboard.setText(self._selection_cursor.selectedText())
+            elif event.key() == Qt.Key_B:         # Break Terminal - sent "Start Of Text"
+                self.send_text(SOH)
+            elif event.key() == Qt.Key_C:         # Break Terminal - sent "End of Text"
+                self.send_text(ETX)
+            elif event.key() == Qt.Key_D:         # Close Connection - sent "End of Transmission"
+                self.send_text(EOT)
+            elif event.key() == Qt.Key_E:         # Sent "Enquiry"
+                self.send_text(ENQ)
+            elif event.key() == Qt.Key_F:         # Sent " Acknowledge"
+                self.send_text(ACK)
+            elif event.key() == Qt.Key_G:         # Sent "Bell"
+                self.send_text(BEL)
+            elif event.key() == Qt.Key_Z:         # Suspend Terminal - Send "Substitute"
+                self.send_text(SUB)
             return
 
         elif event.modifiers() == Qt.ShiftModifier:
@@ -269,6 +293,7 @@ class QTerminal(QTextEdit):
                 count = pattern.group()[2:-1]
                 if count:
                     try:
+                        # TODO: Need to be adjusted <ESC>[{value1};{value2}H
                         self.verticalScrollBar().setValue(self.verticalScrollBar().maximum() - int(count))
                     except ValueError:
                         print("Receiving non-integer value for escape sequence.")
@@ -426,7 +451,7 @@ class QTerminal(QTextEdit):
 
         # Foreground colors
         elif code == 30:                                   # Foreground Black
-            text_format.setForeground(Qt.darkGray)
+            text_format.setForeground(Qt.black)
         elif code == 31:                                   # Foreground Red
             text_format.setForeground(Qt.red)
         elif code == 32:                                   # Foreground Green
@@ -446,7 +471,7 @@ class QTerminal(QTextEdit):
 
         # Background colors
         elif code == 40:                                   # Background Black
-            text_format.setBackground(Qt.darkGray)
+            text_format.setBackground(Qt.black)
         elif code == 41:                                   # Background Red
             text_format.setBackground(Qt.red)
         elif code == 42:                                   # Background Green
@@ -475,6 +500,6 @@ class QTerminal(QTextEdit):
         text_format.setUnderlineStyle(QTextCharFormat.NoUnderline)
         text_format.setFontUnderline(False)
         text_format.setFontStrikeOut(False)
-        text_format.setForeground(Qt.darkGray)
-        text_format.setBackground(Qt.white)
+        text_format.setForeground(self.FG_COLOR)
+        text_format.setBackground(self.BG_COLOR)
         return text_format
