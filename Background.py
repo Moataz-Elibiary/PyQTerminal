@@ -41,9 +41,10 @@ class Connection(QObject):
                         session.get_client().get_transport().send_ignore()
                         return True
                     except EOFError:
-                        session.remove_channel(channel)
-                else:
-                    session.remove_channel(channel)
+                        print("Checking connection error")
+                    except:
+                        print("Checking connection error")
+                session.remove_channel(channel)
         return False
 
     def start_connection(self):
@@ -112,6 +113,7 @@ class Connection(QObject):
                 # channel.recv(len(str(key))).decode().replace('\r', '')
                 return True and sent
             except error as e:
+                print("sending command error")
                 assert e
         return False
 
@@ -153,7 +155,7 @@ class Session:
     def get_client(self):
         return self._client
 
-    def start_session(self, server, username, password, timeout=15):
+    def start_session(self, server, username='', password='', timeout=15):
         """
         This method is used to start a new connection to server.
         :param
@@ -169,6 +171,7 @@ class Session:
             self.set_client(client)
             return True
         except error as e:
+            print("opening session error")
             self._error = e
             return False
 
@@ -184,6 +187,7 @@ class Session:
             else:
                 return False
         except error as e:
+            print("closing session error")
             self._error = e
             return False
 
@@ -206,6 +210,7 @@ class Session:
                 self.add_channel(channel)
                 return channel
             except error as e:
+                print("opening channel error")
                 self._error = e
         # return None
 

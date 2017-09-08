@@ -7,7 +7,7 @@ from sys import argv
 if __name__ == '__main__':
     app = QApplication(argv)
     _s = Session()
-    _s.start_session('10.74.231.56', 'myousry', 'asdQWE123!')
+    _s.start_session('10.74.231.56', 'myousry', '1qa2ws#ED')
     win = QTerminal(session=_s)
     # win = PyQTerminal()
     win.resize(1030, 670)

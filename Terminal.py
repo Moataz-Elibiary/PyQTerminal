@@ -9,6 +9,8 @@ class QTerminal(QTextEdit):
     TIMEOUT = 60       # Timeout after 60 [s]
     MAX_OUTPUT = 1000  # Maximum output is 1000 lines
     MAX_HISTORY = 100  # Maximum history is 100 lines
+    SCREEN_HEIGHT = 24
+    SCREEN_WIDTH = 80
     FG_COLOR = QColor(100, 100, 100)
     BG_COLOR = QColor(255, 255, 255)
     SELECT_FG_COLOR = QColor(255, 255, 255)
@@ -31,6 +33,8 @@ class QTerminal(QTextEdit):
         self.timer.setSingleShot(True)
 
         # Update the GUI
+        self._application_cursor_mode = False
+        self._application_keypad_mode = False
         self.font = QFont("Lucida Console", 10)
         self.setFont(self.font)
         self.document().setMaximumBlockCount(self.MAX_OUTPUT)
@@ -132,21 +136,22 @@ class QTerminal(QTextEdit):
     def keyPressEvent(self, event):
         if event.modifiers() == Qt.NoModifier:
             if event.key() == Qt.Key_Up:          # Move cursor up
-                text = CSI + 'A'
+                text = (SS3 if self._application_cursor_mode else CSI) + 'A'
             elif event.key() == Qt.Key_Down:      # Move cursor down
-                text = CSI + 'B'
+                text = (SS3 if self._application_cursor_mode else CSI) + 'B'
             elif event.key() == Qt.Key_Right:     # Move cursor right
-                text = CSI + 'C'
+                text = (SS3 if self._application_cursor_mode else CSI) + 'C'
             elif event.key() == Qt.Key_Left:      # Move cursor left
-                text = CSI + 'D'
+                text = (SS3 if self._application_cursor_mode else CSI) + 'D'
             elif event.key() == Qt.Key_Return:    # Move cursor to end of line then send command
                 cursor = self.textCursor()
                 cursor.movePosition(QTextCursor.EndOfLine, QTextCursor.MoveAnchor)
                 cursor.setCharFormat(self.currentCharFormat())
                 self.setTextCursor(cursor)
                 text = event.text()
-            elif event.key() == Qt.Key_Escape:    # Read data in buffer - Send "End Of Transmission"
-                text = '\x04'
+            elif event.key() == Qt.Key_Escape:    # Read data in buffer - Send "End Of Transmission" (same as CRTL + D)
+                # text = EOT
+                text = event.text()
             else:
                 text = event.text()
 
@@ -189,10 +194,6 @@ class QTerminal(QTextEdit):
         #         elif event.modifiers() == Qt.NoModifier:
         #             self.set_cursor_pos(self._readonly_end_pos, QTextCursor.MoveAnchor)
         #             return
-        #
-        #     elif event.key() == Qt.Key_Escape:
-        #         # self._connection.send(ControlSequence.ESC)
-        #         return
 
         return QTextEdit.keyPressEvent(self, event)
 
@@ -214,10 +215,11 @@ class QTerminal(QTextEdit):
                 self._app.beep()
 
             elif char_i == BS:   # Backspace
-                cursor = self.textCursor()
-                cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor)
-                cursor.setCharFormat(self.currentCharFormat())
-                self.setTextCursor(cursor)
+                if not self._application_cursor_mode:
+                    cursor = self.textCursor()
+                    cursor.movePosition(QTextCursor.Left, QTextCursor.MoveAnchor)
+                    cursor.setCharFormat(self.currentCharFormat())
+                    self.setTextCursor(cursor)
 
             elif str(char_i):    # Normal characters
                 # Replace the existing character
@@ -228,6 +230,7 @@ class QTerminal(QTextEdit):
                 self.setTextCursor(cursor)
 
     def add_received_text(self, data):
+        print(repr(data))
         if ESC in data:
             # Slice the data with Escape
             new_data_list = [ESC + d for d in data.split(ESC)]
@@ -282,7 +285,7 @@ class QTerminal(QTextEdit):
                     return sub("%s\d*[ABCDEF]" % rCSI, '', d)
             return d
 
-        def scroll_cursor(d, pattern):
+        def moving_cursor_to_pos(d, pattern):
             """
             This function is used to scroll the text depending on the received data.
             Sets the cursor position where subsequent text will begin.
@@ -290,16 +293,19 @@ class QTerminal(QTextEdit):
             move to the home position, at the upper left of the screen.
             """
             if pattern:
-                count = pattern.group()[2:-1]
-                if count:
+                row_col = pattern.group()[2:-1]
+                if row_col:
                     try:
-                        # TODO: Need to be adjusted <ESC>[{value1};{value2}H
-                        self.verticalScrollBar().setValue(self.verticalScrollBar().maximum() - int(count))
+                        row = int(row_col.split(';')[0])
+                        col = int(row_col.split(';')[1])
+                        cursor.movePosition(QTextCursor.Up, QTextCursor.MoveAnchor, row)
+                        cursor.movePosition(QTextCursor.PreviousCharacter, QTextCursor.MoveAnchor, col)
                     except ValueError:
                         print("Receiving non-integer value for escape sequence.")
                 else:
-                    self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
-                return sub("%s\d*H" % rCSI, '', d)
+                    # self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
+                    cursor.movePosition(QTextCursor.Start, QTextCursor.MoveAnchor)
+                return sub("%s(\d+;\d+)?H" % rCSI, '', d)
             return d
 
         cursor = self.textCursor()
@@ -311,21 +317,22 @@ class QTerminal(QTextEdit):
                 """ Moving Cursor Patterns """
                 data = moving_cursor(data, match("%s\d*[ABCDEF]" % rCSI, data))   # pattern = <ESC>[{value} A|B|C|D|E|F
 
-                # TODO: To be implemented later
-                # # Move Cursor Character Absolute  [column] (default = [row,1])
-                # matched_pattern = match("%s\d*G" % rCSI, data)  # pattern = <ESC>[{value}G
-                # if matched_pattern:
-                #     data = sub("%s\d*G" % rCSI, '', data)
-                #     moving_cursor(matched_pattern, QTextCursor.PreviousBlock)
-
                 # Move Cursor Position [row;column] (default = [1,1])
-                data = scroll_cursor(data, match("%s\d*H" % rCSI, data))   # pattern = <ESC>[{value};{value}H
+                data = moving_cursor_to_pos(data, match("%s(\d+;\d+)?H" % rCSI, data))   # pattern = <ESC>[{value};{value}H
 
-                # # Move Cursor Forward Tabulation (default = 1)
-                # matched_pattern = match("%s\d*I" % rCSI, data)  # pattern = <ESC>[{value}I
-                # if matched_pattern:
-                #     data = sub("%s\d*I" % rCSI, '', data)
-                #     moving_cursor(matched_pattern, QTextCursor.WordLeft)
+                """ Changing cursor mode """
+                # Set cursor key to application mode
+                matched_pattern = match("%s\?1h" % rCSI, data)   # pattern = <ESC>[?1h
+                if matched_pattern:
+                    print(matched_pattern.group())
+                    data = sub("%s\?1h" % rCSI, '', data)
+                    self._application_cursor_mode = True
+
+                # Set cursor key to normal mode (cursor mode)
+                matched_pattern = match("%s\?1l" % rCSI, data)  # pattern = <ESC>[?1l
+                if matched_pattern:
+                    data = sub("%s\?1l" % rCSI, '', data)
+                    self._application_cursor_mode = False
 
                 """ Erase Patterns """
                 # Text Erase in Display
@@ -395,6 +402,20 @@ class QTerminal(QTextEdit):
                     matched_code = str(findall('\d+', matched_pattern.group())[0])
                     if matched_code in '02':    # Ignore all other codes
                         self.set_title(matched_pattern.group()[4:-1])
+
+            else:
+                """ Changing keypad mode """
+                # Set keypad to application mode
+                matched_pattern = match("\x1B=", data)  # pattern = <ESC>=
+                if matched_pattern:
+                    data = sub("\x1B=", '', data)
+                    self._application_keypad_mode = True
+
+                # Set keypad to normal numeric mode
+                matched_pattern = match("\x1b>", data)  # pattern = <ESC>>
+                if matched_pattern:
+                    data = sub("\x1b>", '', data)
+                    self._application_keypad_mode = False
 
         cursor.setCharFormat(text_format)
         self.setTextCursor(cursor)

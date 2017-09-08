@@ -1,5 +1,6 @@
 """
 http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+http://braun-home.net/michael/info/misc/VT100_commands.htm
 http://en.wikipedia.org/wiki/ANSI_escape_code
 """
 
