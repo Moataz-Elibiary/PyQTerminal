@@ -1,5 +1,7 @@
-from PyQt4.QtGui import QTextCursor, QTextEdit, QFont, QTextCharFormat, QFontMetrics, QColor
-from PyQt4.QtCore import QTimer, Qt, QCoreApplication, SIGNAL
+from PyQt5.QtGui import QTextCursor, QFont, QTextCharFormat, QFontMetrics, QColor
+#from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import QTextEdit
+from PyQt5.QtCore import QTimer, Qt, QCoreApplication, pyqtSignal
 from Background import Connection
 from ControlSequence import *
 from re import match, sub, findall, finditer
@@ -63,12 +65,12 @@ class QTerminal(QTextEdit):
 
     def _connect_signals(self):
         # Connect pyqt signals
-        QTerminal.connect(self, SIGNAL("selectionChanged()"), self.on_selection_changed)
-        Connection.connect(self._connection, SIGNAL("add_text(QString)"), self.add_received_text)
-        Connection.connect(self._connection, SIGNAL("clear_all()"), self.clear)
-        Connection.connect(self._connection, SIGNAL("reset_timer()"), lambda: self.timer.start(self._timeout))
-        Connection.connect(self._connection, SIGNAL("stop_timer()"), self.timer.stop)
-        QTimer.connect(self.timer, SIGNAL("timeout()"), self._connection.timeout)
+        self.selectionChanged.connect(self.on_selection_changed)
+        self._connection.add_text['QString'].connect(self.add_received_text)
+        self._connection.clear_all.connect(self.clear)
+        self._connection.reset_timer.connect(lambda: self.timer.start(self._timeout))
+        self._connection.stop_timer.connect(self.timer.stop)
+        self.timer.timeout.connect(self._connection.timeout)
 
     def closeEvent(self, *args, **kwargs):
         self._connection.close_session()

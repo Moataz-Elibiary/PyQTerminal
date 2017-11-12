@@ -1,11 +1,20 @@
-from PyQt4.QtCore import SIGNAL, QObject
+from PyQt5.QtCore import QObject,pyqtSignal
 from threading import Thread
 from time import sleep
 from _socket import error
 from paramiko import SSHClient, AutoAddPolicy
 
+try:
+    QString = unicode
+except NameError:
+    # Python 3
+    QString = str
 
 class Connection(QObject):
+    clear_all = pyqtSignal()
+    reset_timer = pyqtSignal()
+    add_text = pyqtSignal('QString')
+    stop_timer = pyqtSignal()
     DATA_READ_INT = 0.1                  # Read data every 0.5 [s]
 
     def __init__(self):
@@ -51,15 +60,15 @@ class Connection(QObject):
         def worker():
             if session:
                 if session.is_connected():
-                    self.emit(SIGNAL("add_text(QString)"), "\nStarting new channel ...\n")
+                    self.add_text.emit((QString), "\nStarting new channel ...\n")
                     channel = session.open_channel()
                     if channel:
                         self.set_channel(channel)
-                        self.emit(SIGNAL("clear_all()"))
-                        self.emit(SIGNAL("reset_timer()"))
+                        self.clear_all.emit()
+                        self.reset_timer.emit()
                         self.read_data()
                         return
-            self.emit(SIGNAL("add_text(QString)"), "\nError: Unable to start connection.\n")
+            self.add_text.emit("\nError: Unable to start connection.\n")
 
         session = self.get_session()
         thread1 = Thread(target=worker)
@@ -70,8 +79,8 @@ class Connection(QObject):
             while True and self.is_connected() and not self._exit_reading_flag:
                 if channel.recv_ready():
                     data = channel.recv(1024).decode().replace('\r', '')
-                    self.emit(SIGNAL("add_text(QString)"), data)
-                    self.emit(SIGNAL("reset_timer()"))
+                    self.add_text.emit(data)
+                    self.reset_timer.emit()
                     continue
                 sleep(self._reading_interval)
 
@@ -91,8 +100,8 @@ class Connection(QObject):
             if channel:
                 session.close_channel(channel)
                 self.set_channel(None)
-        self.emit(SIGNAL("stop_timer()"))
-        self.emit(SIGNAL("add_text(QString)"), "\nConnection closed\n")
+        self.stop_timer.emit()
+        self.add_text.emit("\nConnection closed\n")
         return True
 
     def close_session(self):
@@ -102,7 +111,7 @@ class Connection(QObject):
                 self.close_connection()
             session.close_session()
             self.set_session(None)
-        self.emit(SIGNAL("add_text(QString)"), "\nSession closed\n\n")
+        self.add_text.emit("\nSession closed\n\n")
         return True
 
     def send(self, cmd):
@@ -118,7 +127,7 @@ class Connection(QObject):
         return False
 
     def timeout(self):
-        self.emit(SIGNAL("add_text(QString)"), "\nTimeout")
+        self.add_text.emit("\nTimeout")
         self.close_connection()
 
 
